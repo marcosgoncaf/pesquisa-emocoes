@@ -1,0 +1,9 @@
+streamlit
+deepface
+opencv-python-headless
+pandas
+gspread
+oauth2client
+streamlit-webrtc
+aiortc
+av
