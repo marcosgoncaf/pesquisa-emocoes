@@ -117,19 +117,30 @@ class VideoProcessor:
 params = st.query_params
 study_id_from_url = params.get("study_id")
 
-# CSS Agressivo para Limpeza Visual
+# CSS Agressivo para Limpeza Visual e Correção da Câmera
 st.markdown("""
 <style>
-    /* Esconde TUDO que é padrão do Streamlit */
+    /* Esconde cabeçalho, rodapé e sidebar padrão do Streamlit */
     #MainMenu, footer, header, [data-testid="stSidebar"] {display: none !important;}
     .stApp { background-color: #F8F9FA; font-family: sans-serif; }
     
-    /* Esconde os controles chatos do WebRTC (Select Device, etc) */
-    div[data-testid="stWebRTC"] > div > div > div > div { display: none !important; }
-    .rtc-select-device { display: none !important; }
-    button[title="Stop"], button[title="Start"] { display: none !important; }
-    
-    /* Estilos do App */
+    /* --- HACK PARA O WEBRTC --- */
+    /* Esconde SOMENTE os botões e seletores do componente WebRTC */
+    div[class*="rtc-select-device"], 
+    button[class*="rtc-button"],
+    div[data-testid="stWebRTC"] > div > div > div > div { 
+        display: none !important; 
+        height: 0px !important;
+    }
+
+    /* Garante que o elemento de vídeo ocupe o espaço correto e não fique preto */
+    video {
+        border-radius: 15px;
+        transform: scaleX(-1); /* Espelha a câmera como um espelho real */
+        object-fit: cover;
+    }
+
+    /* Estilos do App (Mantidos do seu código) */
     .app-card {
         background: white; padding: 2rem; border-radius: 15px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 1rem;
