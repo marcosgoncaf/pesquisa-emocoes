@@ -20,7 +20,7 @@ import string
 NOME_DA_SUA_PLANILHA = "Resultados Pesquisa Emoções"
 
 # ⬇️ ATUALIZE ISTO DEPOIS DO DEPLOY: A URL oficial do seu site no Streamlit
-URL_BASE_DA_SUA_APP = "https://seu-link-final-aqui.streamlit.app"
+URL_BASE_DA_SUA_APP = "https://pesquisa-emocoes-jjhae3nwqqs4mslggexsmn.streamlit.app"
 
 st.set_page_config(page_title="Plataforma de Pesquisa", layout="centered")
 
