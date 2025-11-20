@@ -192,15 +192,25 @@ if study_id_from_url:
     else:
         st.markdown("""<style>div[data-testid="stWebRTC"] {height: 0px; visibility: hidden; margin: 0;}</style>""", unsafe_allow_html=True)
 
-    # WebRTC Principal
+
+    # WebRTC Principal com AUTO-START
     webrtc_ctx = webrtc_streamer(
         key="stream",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=RTC_CONFIGURATION,
         video_processor_factory=VideoProcessor,
         media_stream_constraints={"video": True, "audio": False},
-        async_processing=True
+        async_processing=True,
+        # --- ADIÇÕES CRUCIAIS ---
+        desired_playing_state=True,  # <--- Força o início automático sem clicar em botões
+        video_html_attrs={           # <--- Garante compatibilidade com navegadores (evita tela preta)
+            "style": {"width": "100%", "margin": "0 auto", "border-radius": "15px"},
+            "controls": False,
+            "autoPlay": True,
+            "playsInline": True
+        }
     )
+
 
     # Leitura de estado
     if webrtc_ctx.video_processor:
