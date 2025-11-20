@@ -16,8 +16,10 @@ import os
 import queue
 
 # =================================================================================
-# --- CREDENCIAIS (JÁ INCLUSAS) ---
+# --- CREDENCIAIS E CONFIGURAÇÕES ---
 # =================================================================================
+
+# Credenciais já preenchidas conforme fornecido
 CREDENCIAIS_JSON = {
   "type": "service_account",
   "project_id": "minha-ferramenta-de-pesquisa",
@@ -31,14 +33,18 @@ CREDENCIAIS_JSON = {
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/bot-da-planilha%40minha-ferramenta-de-pesquisa.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
 }
+
 NOME_DA_SUA_PLANILHA = "Resultados Pesquisa Emoções"
 URL_BASE_DA_SUA_APP = "https://pesquisa-emocoes-jjhae3nwqqs4mslggexsmn.streamlit.app"
+
+# Otimização para Cloud
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
-st.set_page_config(page_title="Estudo", layout="wide", initial_sidebar_state="collapsed")
+# Configuração da Página
+st.set_page_config(page_title="Estudo Sensorial", layout="wide", initial_sidebar_state="collapsed")
 
 # =================================================================================
-# --- BACKEND & LÓGICA ---
+# --- FUNÇÕES DE BACKEND ---
 # =================================================================================
 def generate_study_id(length=8):
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
@@ -49,7 +55,9 @@ def connect_gsheets():
         sa = gspread.service_account_from_dict(CREDENCIAIS_JSON)
         sh = sa.open(NOME_DA_SUA_PLANILHA)
         return sh
-    except Exception: return None
+    except Exception as e:
+        print(f"Erro de conexão GSheets: {e}")
+        return None
 
 def analyze_emotion(frame_bytes):
     try:
@@ -80,7 +88,7 @@ class VideoProcessor:
     def recv(self, frame: VideoFrame) -> VideoFrame:
         frm = frame.to_ndarray(format="bgr24")
         
-        # --- MODO FACE CHECK (Com visual) ---
+        # MODO: Detecção de Rosto (Face Check)
         if not self.recording:
             gray = cv2.cvtColor(frm, cv2.COLOR_BGR2GRAY)
             faces = self.cascade.detectMultiScale(gray, 1.1, 4)
@@ -91,42 +99,34 @@ class VideoProcessor:
                 self.face_detected = is_face
             
             h, w, _ = frm.shape
-            # Desenha Oval (Verde se OK, Cinza se não)
             color = (0, 200, 0) if is_face else (200, 200, 200)
             thickness = 3 if is_face else 2
             
-            # Guia Visual
             cv2.ellipse(frm, (w // 2, h // 2), (90, 120), 0, 0, 360, color, thickness)
-            
-            # Texto de instrução na câmera
             text = "ROSTO OK" if is_face else "POSICIONE O ROSTO"
             cv2.putText(frm, text, (w//2 - 60, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                 
             return VideoFrame.from_ndarray(frm, format="bgr24")
         
-        # --- MODO GRAVAÇÃO (Silencioso/Buffer) ---
+        # MODO: Gravação (Buffer)
         with self.capture_lock:
             if self.recording:
                 self.frames_buffer.append(frm)
-        # Retorna frame preto para economizar banda durante o teste
+        
+        # Retorna frame preto durante o teste para evitar distração
         return VideoFrame.from_ndarray(np.zeros((1, 1, 3), np.uint8), format="bgr24")
 
 # =================================================================================
-# --- INTERFACE PRINCIPAL ---
+# --- INTERFACE (UI/UX) ---
 # =================================================================================
 params = st.query_params
 study_id_from_url = params.get("study_id")
 
-# --- CSS GERAL (APP-LIKE) ---
+# CSS Principal
 st.markdown("""
 <style>
-    /* Remove elementos padrão */
     #MainMenu, footer, header, [data-testid="stSidebar"] {display: none !important;}
-    
-    /* Fundo e Fontes */
     .stApp { background-color: #F0F2F6; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-    
-    /* Cards Estilizados */
     .app-card {
         background: white;
         padding: 2rem;
@@ -134,62 +134,37 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0,0,0,0.08);
         margin-bottom: 20px;
         text-align: center;
-        transition: all 0.3s ease;
     }
-    
-    /* Imagem do Estudo */
-    .study-img {
-        width: 100%;
-        max-width: 400px;
-        border-radius: 16px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    
-    /* Imagem Circular (Estímulo) */
     .circle-stimulus {
-        width: 280px;
-        height: 280px;
-        border-radius: 50%;
-        object-fit: cover;
-        border: 4px solid white;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-        margin: 0 auto;
-        display: block;
+        width: 280px; height: 280px;
+        border-radius: 50%; object-fit: cover;
+        border: 4px solid white; box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        margin: 0 auto; display: block;
     }
-
-    /* Botão Personalizado */
     .stButton>button {
         background: linear-gradient(45deg, #4F46E5, #3B82F6);
-        color: white;
-        border: none;
-        border-radius: 50px;
-        padding: 16px 32px;
-        font-size: 16px;
-        font-weight: 600;
-        width: 100%;
-        box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4);
-        transition: transform 0.1s;
+        color: white; border: none; border-radius: 50px;
+        padding: 16px 32px; font-size: 16px; font-weight: 600;
+        width: 100%; transition: transform 0.1s;
     }
     .stButton>button:active { transform: scale(0.98); }
-    .stButton>button:disabled { background: #cbd5e1; color: #64748b; box-shadow: none; }
-
-    /* Esconde controles WebRTC */
+    .stButton>button:disabled { background: #cbd5e1; color: #64748b; }
     div[class*="stWebcameraselector"] {display: none;}
 </style>
 """, unsafe_allow_html=True)
 
-# Variáveis de Estado
+# Inicialização de Variáveis de Sessão
 if 'participant_results' not in st.session_state: st.session_state.participant_results = []
 if 'p_stage' not in st.session_state: st.session_state.p_stage = 'check_in'
 if 'current_item' not in st.session_state: st.session_state.current_item = 0
 if 'face_ok' not in st.session_state: st.session_state.face_ok = False
 
 if study_id_from_url:
-    # #############################################################################
+    # ############################
     # MODO PARTICIPANTE
-    # #############################################################################
+    # ############################
     
-    # Carrega Configuração
+    # Carrega configuração (apenas uma vez)
     if 'study_config' not in st.session_state:
         sh = connect_gsheets()
         if sh:
@@ -204,71 +179,51 @@ if study_id_from_url:
         st.error("Estudo não encontrado.")
         st.stop()
 
-    # CSS Dinâmico para Câmera (Esconde durante o teste para não distrair)
+    # CSS Dinâmico da Câmera
     if st.session_state.p_stage == 'check_in':
         st.markdown("""<style>
             div[data-testid="stWebRTC"] {
-                margin: 0 auto; 
-                width: 300px; 
-                border-radius: 20px; 
-                overflow: hidden; 
-                border: 2px solid #e5e7eb;
+                margin: 0 auto; width: 300px; border-radius: 20px; overflow: hidden; border: 2px solid #e5e7eb;
             }
         </style>""", unsafe_allow_html=True)
     else:
-        # Câmera oculta mas ativa (height 0)
         st.markdown("""<style>div[data-testid="stWebRTC"] {height: 0px; visibility: hidden; margin: 0;}</style>""", unsafe_allow_html=True)
 
-    # Componente WebRTC (Sempre ativo no fundo)
+    # WebRTC Principal
+    rtc_config = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
     webrtc_ctx = webrtc_streamer(
-        key="stream",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}),
-        video_processor_factory=VideoProcessor,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True
+        key="stream", mode=WebRtcMode.SENDRECV,
+        rtc_configuration=rtc_config, video_processor_factory=VideoProcessor,
+        media_stream_constraints={"video": True, "audio": False}, async_processing=True
     )
 
-    # Loop de verificação do rosto (Face Check)
+    # Atualiza status do rosto da fila do processador
     if webrtc_ctx.video_processor:
         try:
             while True:
                 st.session_state.face_ok = webrtc_ctx.video_processor.result_queue.get_nowait()
         except queue.Empty: pass
 
-    # --- CONTAINER PRINCIPAL ---
+    # Layout
     col_spacer1, col_main, col_spacer2 = st.columns([1, 2, 1])
     
     with col_main:
-        
-        # 1. CHECK-IN E FACE ID
+        # 1. Check-in
         if st.session_state.p_stage == 'check_in':
-            st.markdown(f"""
-            <div class='app-card'>
-                <h1>Olá! 👋</h1>
-                <p style='color: #666; margin-bottom: 20px;'>{config.get('welcome_message')}</p>
-                <p style='font-weight: bold; color: #333;'>Posicione seu rosto no oval abaixo para liberar o acesso.</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"<div class='app-card'><h1>Olá! 👋</h1><p>{config.get('welcome_message')}</p><p style='font-weight:bold'>Posicione o rosto abaixo:</p></div>", unsafe_allow_html=True)
             
-            # A câmera aparece aqui automaticamente pelo Streamlit
-            
-            if st.session_state.face_ok:
-                st.success("Face identificada! Pode começar.")
-            else:
-                st.info("Aguardando posicionamento...")
+            if st.session_state.face_ok: st.success("Face identificada! Pode começar.")
+            else: st.info("Aguardando posicionamento...")
 
-            pid = st.text_input("Digite seu Nome ou ID:", placeholder="Ex: Ana Silva")
-            
+            pid = st.text_input("Seu Nome ou ID:")
             if st.button("COMEÇAR AVALIAÇÃO", disabled=not st.session_state.face_ok):
                 if pid:
                     st.session_state.participant_id = pid
                     st.session_state.p_stage = 'instruction'
                     st.rerun()
-                else:
-                    st.toast("⚠️ Por favor, digite seu nome.")
+                else: st.toast("⚠️ Digite seu nome.")
 
-        # 2. ESTÍMULO E TIMER
+        # 2. Instrução e Estímulo
         elif st.session_state.p_stage == 'instruction':
             idx = st.session_state.current_item
             if idx >= len(config['items']):
@@ -278,47 +233,31 @@ if study_id_from_url:
             item = config['items'][idx]
             duration = config.get('exposure_time', 5)
             
-            # Inicializa Timer
             if 'start_time' not in st.session_state:
                 st.session_state.start_time = time.time()
-                # Inicia gravação silenciosa
                 if webrtc_ctx.video_processor:
                      webrtc_ctx.video_processor.frames_buffer = []
                      webrtc_ctx.video_processor.recording = True
             
-            # Layout Visual
-            st.markdown(f"<h3 style='text-align: center; color: #444;'>Observe por {duration} segundos...</h3>", unsafe_allow_html=True)
-            
-            # Imagem Circular
+            st.markdown(f"<h3 style='text-align:center'>Observe por {duration}s...</h3>", unsafe_allow_html=True)
             try:
-                st.markdown(f"""
-                    <div style="margin: 30px 0;">
-                        <img src="{item['stimulus_url']}" class="circle-stimulus">
-                    </div>
-                    <p style="text-align: center; font-size: 1.1rem; color: #555; font-weight: 500;">{item['caption']}</p>
-                """, unsafe_allow_html=True)
-            except: st.error("Erro ao carregar imagem")
+                st.markdown(f"""<div style="margin: 30px 0;"><img src="{item['stimulus_url']}" class="circle-stimulus"></div><p style="text-align:center; font-size:1.2rem; font-weight:500">{item['caption']}</p>""", unsafe_allow_html=True)
+            except: st.error("Erro imagem")
 
-            # Barra de Progresso Circular (Simulada com barra normal estilizada)
             elapsed = time.time() - st.session_state.start_time
             if elapsed < duration:
                 st.progress(min(elapsed / duration, 1.0))
                 time.sleep(0.1)
                 st.rerun()
             else:
-                # Fim do tempo: Para gravação e salva frames
                 if webrtc_ctx.video_processor:
                     webrtc_ctx.video_processor.recording = False
                     with webrtc_ctx.video_processor.capture_lock:
                         frames = webrtc_ctx.video_processor.frames_buffer.copy()
                     
-                    # Amostragem inteligente (FPS)
                     fps = config.get('fps_limit', 3)
-                    total_frames = len(frames)
-                    target_frames = int(duration * fps)
-                    
-                    if total_frames > 0:
-                        step = max(1, int(total_frames / target_frames))
+                    if len(frames) > 0:
+                        step = max(1, int(len(frames) / (duration * fps)))
                         st.session_state.last_frames = frames[::step]
                     else:
                         st.session_state.last_frames = []
@@ -327,54 +266,45 @@ if study_id_from_url:
                 st.session_state.p_stage = 'questions'
                 st.rerun()
 
-        # 3. QUESTIONÁRIO
+        # 3. Perguntas
         elif st.session_state.p_stage == 'questions':
             item = config['items'][st.session_state.current_item]
-            
-            st.markdown("<div class='app-card'>", unsafe_allow_html=True)
-            st.markdown("<h3>📝 Sua Avaliação</h3>", unsafe_allow_html=True)
+            st.markdown("<div class='app-card'><h3>📝 Sua Avaliação</h3></div>", unsafe_allow_html=True)
             
             with st.form("qs"):
-                ans_liking, ans_emotions, ans_word = None, [], ""
-                
+                lk, em, wd = None, [], ""
                 if 'Nota de Gostar (1-9)' in item['questions']:
                     st.write("**Quanto você gostou?**")
-                    ans_liking = st.slider("", 1, 9, 5)
-                
+                    lk = st.slider("", 1, 9, 5)
                 if 'Lista de Emoções (Múltipla Escolha)' in item['questions']:
-                    st.write("**Quais emoções você sentiu?**")
-                    ans_emotions = st.multiselect("", ['Alegre', 'Calmo', 'Interessado', 'Nojo', 'Medo', 'Triste', 'Surpreso', 'Neutro', 'Apetite'])
-                
+                    st.write("**O que sentiu?**")
+                    em = st.multiselect("", ['Alegre', 'Calmo', 'Interessado', 'Nojo', 'Medo', 'Triste', 'Surpreso', 'Neutro'])
                 if 'Uma Palavra que Define (Campo de Texto)' in item['questions']:
                     st.write("**Defina em uma palavra:**")
-                    ans_word = st.text_input("")
+                    wd = st.text_input("")
                 
                 st.write("")
                 if st.form_submit_button("PRÓXIMO"):
                     st.session_state.participant_results.append({
                         'frames': st.session_state.get('last_frames', []),
-                        'ans_liking': ans_liking, 'ans_emotions': ans_emotions, 'ans_word': ans_word,
+                        'ans_liking': lk, 'ans_emotions': em, 'ans_word': wd,
                         'stimulus': item['name'], 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     })
                     st.session_state.current_item += 1
                     st.session_state.p_stage = 'instruction'
                     st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
 
-        # 4. TELA FINAL
+        # 4. Fim
         elif st.session_state.p_stage == 'end':
-            st.markdown("<div class='app-card'><h2>🎉 Obrigado!</h2><p>Estamos salvando suas respostas...</p></div>", unsafe_allow_html=True)
-            
+            st.markdown("<div class='app-card'><h2>🎉 Obrigado!</h2><p>Salvando respostas...</p></div>", unsafe_allow_html=True)
             if not st.session_state.get('saved', False):
                 bar = st.progress(0)
                 rows = []
                 tot = len(st.session_state.participant_results)
                 
                 for i, res in enumerate(st.session_state.participant_results):
-                    # Processamento de Emoção
                     frames_to_anal = []
                     if res['frames']:
-                        # Pega inicio, meio e fim para análise rápida
                         frames_to_anal.append(res['frames'][0])
                         if len(res['frames']) > 2: frames_to_anal.append(res['frames'][len(res['frames'])//2])
                         if len(res['frames']) > 1: frames_to_anal.append(res['frames'][-1])
@@ -383,13 +313,11 @@ if study_id_from_url:
                     for f in frames_to_anal:
                         try: _, b = cv2.imencode('.jpg', f); ems.append(analyze_emotion(b.tobytes()))
                         except: ems.append("erro")
-                    
                     while len(ems) < 3: ems.append("N/A")
                     
                     rows.append([
                         st.session_state.participant_id, study_id_from_url, res['stimulus'], res['timestamp'],
-                        ems[0], ems[1], ems[2], 
-                        res['ans_liking'] or "", ", ".join(res['ans_emotions']), res['ans_word']
+                        ems[0], ems[1], ems[2], res['ans_liking'] or "", ", ".join(res['ans_emotions']), res['ans_word']
                     ])
                     bar.progress((i+1)/tot)
                 
@@ -398,66 +326,81 @@ if study_id_from_url:
                     try:
                         sh.worksheet("Resultados").append_rows(rows)
                         st.session_state.saved = True
-                        st.success("✅ Dados salvos com sucesso!")
+                        st.success("✅ Dados salvos!")
                         st.balloons()
                     except: st.error("Erro de conexão.")
-            else:
-                st.info("Você já pode fechar esta página.")
+            else: st.info("Pode fechar.")
 
 else:
     # #############################################################################
-    # MODO ADMIN (PESQUISADOR)
+    # MODO ADMIN
     # #############################################################################
-    # Restaura CSS do Admin
     st.markdown("<style>[data-testid='stSidebar'] {display: block !important;} .stApp {background-color: white;}</style>", unsafe_allow_html=True)
+    st.markdown("""<style>.admin-card { background: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border: 1px solid #e0e0e0; margin-bottom: 1rem; }</style>""", unsafe_allow_html=True)
 
     st.title("🎛️ Painel do Pesquisador")
-    
-    if connect_gsheets(): st.success(f"Conectado: {NOME_DA_SUA_PLANILHA}")
-    else: st.error("Erro de conexão com a planilha.")
-    
+    sh = connect_gsheets()
+    if sh: st.success(f"Online: {NOME_DA_SUA_PLANILHA}")
+    else: st.error("Desconectado - Verifique as Credenciais no Código")
+
     if 'study_items' not in st.session_state: st.session_state.study_items = []
-
-    # Layout Admin
-    c1, c2 = st.columns([1, 1])
     
-    with c1:
-        st.subheader("Configuração do Estudo")
+    # Variável de sessão para guardar o link gerado
+    if 'last_generated_link' not in st.session_state: st.session_state.last_generated_link = None
+
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        st.markdown('<div class="admin-card">', unsafe_allow_html=True)
+        st.subheader("1. Configurar Estudo")
         s_name = st.text_input("Nome do Estudo")
-        w_msg = st.text_area("Mensagem de Boas-vindas")
-        
-        with st.expander("⚙️ Configurações Avançadas"):
-            et = st.slider("Tempo de Exibição (segundos)", 3, 10, 5)
-            fps = st.slider("Qualidade da Captura (FPS)", 1, 10, 3)
+        w_msg = st.text_area("Mensagem de Boas-vindas", "Bem-vindo à pesquisa.")
+        with st.expander("⚙️ Ajustes Técnicos"):
+            et = st.slider("Tempo Exposição (s)", 3, 10, 5)
+            fps = st.slider("Captura (FPS)", 1, 10, 3)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.subheader("Adicionar Estímulo")
-        with st.form("add"):
-            url = st.text_input("Link da Imagem (URL)")
-            nm = st.text_input("Nome Interno (ID)")
-            cp = st.text_input("Legenda para o Usuário")
-            qs = st.multiselect("Perguntas", ['Nota de Gostar (1-9)', 'Lista de Emoções (Múltipla Escolha)', 'Uma Palavra que Define (Campo de Texto)'])
-            if st.form_submit_button("Adicionar") and url and nm:
-                st.session_state.study_items.append({"name": nm, "stimulus_url": url, "caption": cp, "questions": qs})
-                st.success("Item Adicionado")
-
-    with c2:
-        st.subheader(f"Roteiro ({len(st.session_state.study_items)} itens)")
-        for i, it in enumerate(st.session_state.study_items):
-            st.info(f"{i+1}. {it['name']}")
-        
-        if st.button("Limpar Lista"):
-            st.session_state.study_items = []
-            st.rerun()
-
-        if st.button("💾 SALVAR E GERAR LINK", type="primary"):
+        st.markdown('<div class="admin-card">', unsafe_allow_html=True)
+        st.subheader("3. Finalizar")
+        if st.button("SALVAR E GERAR LINK", type="primary"):
             if s_name and st.session_state.study_items:
                 sid = generate_study_id()
                 cfg = {"study_name": s_name, "welcome_message": w_msg, "items": st.session_state.study_items, "exposure_time": et, "fps_limit": fps}
-                sh = connect_gsheets()
                 try:
                     sh.worksheet("Estudos").append_row([sid, json.dumps(cfg)])
-                    st.success("Link Criado:")
-                    st.code(f"{URL_BASE_DA_SUA_APP}?study_id={sid}")
-                except: st.error("Erro ao salvar.")
+                    # Salva o link no Session State para não sumir
+                    st.session_state.last_generated_link = f"{URL_BASE_DA_SUA_APP}?study_id={sid}"
+                except Exception as e: st.error(f"Erro: {e}")
             else:
-                st.warning("Preencha os dados obrigatórios.")
+                st.warning("Preencha os dados.")
+        
+        # Exibe o link se ele existir na memória
+        if st.session_state.last_generated_link:
+            st.success("Link Criado com Sucesso!")
+            st.code(st.session_state.last_generated_link)
+            st.info("Copie o link acima e envie aos participantes.")
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with right_col:
+        st.markdown('<div class="admin-card">', unsafe_allow_html=True)
+        st.subheader("2. Adicionar Tarefas")
+        with st.form("add"):
+            url = st.text_input("Link Imagem")
+            nm = st.text_input("Nome ID")
+            cp = st.text_input("Legenda")
+            qs = st.multiselect("Perguntas", ['Nota de Gostar (1-9)', 'Lista de Emoções (Múltipla Escolha)', 'Uma Palavra que Define (Campo de Texto)'])
+            if st.form_submit_button("Adicionar"):
+                if url and nm:
+                    st.session_state.study_items.append({"name": nm, "stimulus_url": url, "caption": cp, "questions": qs})
+                    st.success(f"'{nm}' Adicionado")
+        
+        if st.session_state.study_items:
+            st.write("---")
+            for i, it in enumerate(st.session_state.study_items):
+                st.caption(f"{i+1}. {it['name']}")
+            if st.button("Limpar Roteiro"):
+                st.session_state.study_items = []
+                st.session_state.last_generated_link = None
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
