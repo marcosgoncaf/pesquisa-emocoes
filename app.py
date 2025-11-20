@@ -15,15 +15,35 @@ import string
 import os
 
 # =================================================================================
-# --- CONFIGURAÇÕES GLOBAIS ---
+# --- ÁREA DE CREDENCIAIS (PREENCHA AQUI) ---
 # =================================================================================
-# IMPORTANTE: Para evitar erros de memória com DeepFace no Cloud
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
+# COLE O CONTEÚDO DO SEU ARQUIVO JSON DENTRO DESTE DICIONÁRIO
+# Substitua tudo que está entre as chaves { } abaixo pelo conteúdo do seu arquivo.
+CREDENCIAIS_JSON = {
+  "type": "service_account",
+  "project_id": "minha-ferramenta-de-pesquisa",
+  "private_key_id": "SEU_PRIVATE_KEY_ID",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nSUA_CHAVE_GIGANTE_AQUI\n-----END PRIVATE KEY-----\n",
+  "client_email": "bot-da-planilha@minha-ferramenta-de-pesquisa.iam.gserviceaccount.com",
+  "client_id": "SEU_CLIENT_ID",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/bot-da-planilha%40minha-ferramenta-de-pesquisa.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+
+# Nome da sua planilha no Google Sheets
 NOME_DA_SUA_PLANILHA = "Resultados Pesquisa Emoções"
-# Atualize com seu link real
+
+# Link final do seu aplicativo (Atualize após o deploy se mudar)
 URL_BASE_DA_SUA_APP = "https://pesquisa-emocoes-jjhae3nwqqs4mslggexsmn.streamlit.app"
 
+# =================================================================================
+# --- CONFIGURAÇÕES GLOBAIS ---
+# =================================================================================
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0" # Otimização para evitar erros no Cloud
 st.set_page_config(page_title="Plataforma de Pesquisa", layout="centered")
 
 # =================================================================================
@@ -34,64 +54,39 @@ def generate_study_id(length=8):
 
 @st.cache_resource
 def connect_gsheets():
-    creds = None
+    """Conecta usando as credenciais embutidas no código."""
     try:
-        if "gcp_service_account" in st.secrets:
-            creds = st.secrets["gcp_service_account"]
-    except Exception:
-        pass
-    
-    if creds is None:
-        if 'json_creds_content' in st.session_state and st.session_state.json_creds_content:
-            try:
-                creds = json.loads(st.session_state.json_creds_content)
-            except json.JSONDecodeError:
-                st.error("JSON inválido.")
-                st.stop()
-        else:
-            return None
-
-    try:
-        sa = gspread.service_account_from_dict(creds)
+        # Usa diretamente a variável CREDENCIAIS_JSON que você preencheu acima
+        sa = gspread.service_account_from_dict(CREDENCIAIS_JSON)
         sh = sa.open(NOME_DA_SUA_PLANILHA)
         return sh
     except Exception as e:
-        st.error(f"Erro planilha: {e}")
+        st.error(f"Erro ao conectar na planilha. Verifique se colou o JSON corretamente e se o nome da planilha está certo. Detalhes: {e}")
         st.stop()
 
 def analyze_emotion(frame_bytes):
     """Analisa a imagem. Retorna a emoção ou 'Erro'."""
     try:
-        # Converte bytes para imagem OpenCV
         nparr = np.frombuffer(frame_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        # DeepFace analysis
         analysis = DeepFace.analyze(img_path=img, actions=['emotion'], enforce_detection=False)
         if isinstance(analysis, list) and len(analysis) > 0:
             return analysis[0]['dominant_emotion']
         return "rosto_nao_detectado"
     except Exception as e:
-        print(f"Erro DeepFace: {e}")
         return "erro_analise"
 
 class VideoProcessor:
     def __init__(self):
         self.frames_buffer = []
         self.capture_lock = threading.Lock()
-        # Flag interna para controlar captura sem depender só do session_state na thread
         self.recording = False 
 
     def recv(self, frame: VideoFrame) -> VideoFrame:
-        # Converte frame
         frm = frame.to_ndarray(format="bgr24")
-        
-        # Lógica de captura
         with self.capture_lock:
             if self.recording:
                 self.frames_buffer.append(frm)
-        
-        # Retorna frame preto (invisível)
         return VideoFrame.from_ndarray(np.zeros((1, 1, 3), np.uint8), format="bgr24")
 
 # =================================================================================
@@ -103,7 +98,6 @@ study_id_from_url = params.get("study_id")
 if study_id_from_url:
     # --- MODO PARTICIPANTE ---
     
-    # Função de carregamento simples
     def load_study_config(_study_id):
         sh = connect_gsheets()
         if not sh: return None
@@ -114,26 +108,17 @@ if study_id_from_url:
         except: pass
         return None
 
-    # Aviso se faltar credencial no modo teste
-    if 'json_creds_content' not in st.session_state and 'gcp_service_account' not in st.secrets:
-         st.warning("⚠️ Modo Teste: Carregue o JSON na tela inicial primeiro.")
-         st.stop()
-    
     study_config = load_study_config(study_id_from_url)
 
     if study_config:
-        # Inicializa estados
         if 'participant_stage' not in st.session_state: st.session_state.participant_stage = 'welcome'
         if 'participant_results' not in st.session_state: st.session_state.participant_results = []
         if 'current_item' not in st.session_state: st.session_state.current_item = 0
         if 'last_captured_frames' not in st.session_state: st.session_state.last_captured_frames = []
 
-        # CSS para esconder visualização
         st.markdown("<style>div[data-testid='stWebRTC']{display: none;}</style>", unsafe_allow_html=True)
         
-        # Configuração WebRTC mais estável
         rtc_config = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
-        
         webrtc_ctx = webrtc_streamer(
             key="webcam", 
             video_processor_factory=VideoProcessor,
@@ -142,7 +127,7 @@ if study_id_from_url:
             async_processing=True
         )
 
-        # --- FLUXO ---
+        # TELA 1: BOAS VINDAS
         if st.session_state.participant_stage == 'welcome':
             st.title("Bem-vindo(a)")
             st.write(study_config.get('welcome_message', ''))
@@ -153,6 +138,7 @@ if study_id_from_url:
                     st.rerun()
                 else: st.warning("Preencha seu ID.")
 
+        # TELA 2: TESTE
         elif st.session_state.participant_stage == 'test':
             idx = st.session_state.current_item
             if idx >= len(study_config['items']):
@@ -161,7 +147,6 @@ if study_id_from_url:
             
             item = study_config['items'][idx]
             
-            # Limpa buffer anterior
             if webrtc_ctx.video_processor:
                 with webrtc_ctx.video_processor.capture_lock:
                     webrtc_ctx.video_processor.frames_buffer = []
@@ -170,33 +155,23 @@ if study_id_from_url:
             try: st.image(item['stimulus_url'], caption=item['caption'], use_column_width=True)
             except: st.image("https://via.placeholder.com/400", caption="Erro imagem")
             
-            # Botão de Captura
             if st.button("OK, observei", key=f"btn_{idx}"):
-                
-                # Verifica se a câmera está ativa antes de tentar capturar
                 if not webrtc_ctx.state.playing or not webrtc_ctx.video_processor:
-                    st.error("🚨 Erro na câmera. Por favor, recarregue a página e permita o uso da webcam.")
+                    st.error("🚨 Erro na câmera. Recarregue a página.")
                     st.stop()
 
-                # Ativa gravação no processador
                 webrtc_ctx.video_processor.recording = True
-                
-                with st.spinner("Registrando reação... (Mantenha a câmera aberta)"):
-                    time.sleep(4) # Captura por 4 segundos
-                
-                # Para gravação
+                with st.spinner("Registrando..."):
+                    time.sleep(4)
                 webrtc_ctx.video_processor.recording = False
                 
-                # Recupera frames
                 frames = []
                 with webrtc_ctx.video_processor.capture_lock:
                     frames = webrtc_ctx.video_processor.frames_buffer.copy()
                 
-                # VALIDAÇÃO IMPORTANTE: Se não capturou nada, não avança!
                 if len(frames) == 0:
-                    st.error("⚠️ Nenhuma imagem capturada. Verifique se sua webcam está funcionando e tente clicar em 'OK' novamente.")
+                    st.error("⚠️ Nenhuma imagem capturada. Tente novamente.")
                 else:
-                    # Seleciona 3 frames
                     selected = []
                     if len(frames) > 0: selected.append(frames[0])
                     if len(frames) > 2:
@@ -205,25 +180,22 @@ if study_id_from_url:
                     elif len(frames) == 2: selected.append(frames[1])
                     
                     st.session_state.last_captured_frames = selected
-                    st.success(f"Captura concluída! ({len(frames)} frames processados)")
-                    time.sleep(1)
+                    st.success("Captura OK!")
+                    time.sleep(0.5)
                     st.session_state.participant_stage = 'questionnaire'
                     st.rerun()
 
+        # TELA 3: QUESTIONÁRIO
         elif st.session_state.participant_stage == 'questionnaire':
             idx = st.session_state.current_item
             item = study_config['items'][idx]
             st.header("Responda")
-            
             ans_liking, ans_emotions, ans_word = None, [], ""
-
-            if 'Nota de Gostar (1-9)' in item['questions']:
-                ans_liking = st.slider("Quanto você gostou?", 1, 9, 5)
-            if 'Lista de Emoções (Múltipla Escolha)' in item['questions']:
-                ans_emotions = st.multiselect("O que sentiu?", ['Alegre', 'Calmo', 'Interessado', 'Nojo', 'Medo', 'Triste', 'Surpreso', 'Neutro'])
-            if 'Uma Palavra que Define (Campo de Texto)' in item['questions']:
-                ans_word = st.text_input("Uma palavra que define:")
-
+            
+            if 'Nota de Gostar (1-9)' in item['questions']: ans_liking = st.slider("Quanto você gostou?", 1, 9, 5)
+            if 'Lista de Emoções (Múltipla Escolha)' in item['questions']: ans_emotions = st.multiselect("O que sentiu?", ['Alegre', 'Calmo', 'Interessado', 'Nojo', 'Medo', 'Triste', 'Surpreso', 'Neutro'])
+            if 'Uma Palavra que Define (Campo de Texto)' in item['questions']: ans_word = st.text_input("Uma palavra que define:")
+            
             if st.button("Próximo"):
                 st.session_state.participant_results.append({
                     'frames': st.session_state.last_captured_frames,
@@ -234,21 +206,19 @@ if study_id_from_url:
                 st.session_state.participant_stage = 'test'
                 st.rerun()
 
+        # TELA 4: FIM
         elif st.session_state.participant_stage == 'end':
             st.title("Finalizado")
             if not st.session_state.get('data_saved', False):
-                with st.spinner("Salvando dados... (Isso pode levar alguns segundos)"):
+                with st.spinner("Salvando..."):
                     rows = []
                     for r in st.session_state.participant_results:
-                        # Processa as emoções aqui no final
-                        # Converte cada frame salvo para bytes JPG antes de enviar para análise
                         ems = []
                         for f in r['frames']:
                             try:
                                 _, buffer = cv2.imencode('.jpg', f)
                                 ems.append(analyze_emotion(buffer.tobytes()))
-                            except:
-                                ems.append("Erro_Img")
+                            except: ems.append("Erro")
                         
                         while len(ems) < 3: ems.append("N/A")
                         
@@ -264,38 +234,36 @@ if study_id_from_url:
                             sh.worksheet("Resultados").append_rows(rows)
                             st.success("Dados salvos!")
                             st.session_state.data_saved = True
-                        except Exception as e: st.error(f"Erro ao salvar: {e}")
+                        except Exception as e: st.error(f"Erro: {e}")
             st.balloons()
             st.write("Obrigado!")
     else:
         st.error("Estudo inválido.")
 
 else:
-    # ADMIN
+    # --- MODO ADMIN ---
     st.title("Painel do Pesquisador")
-    with st.sidebar:
-        json_file = st.file_uploader("Upload JSON (Colab)", type="json")
-        if json_file:
-            st.session_state.json_creds_content = json_file.getvalue().decode("utf-8")
-            st.success("JSON OK")
-
+    
+    sh = connect_gsheets()
+    if sh: st.success(f"✅ Conectado a: {NOME_DA_SUA_PLANILHA}")
+    
     if 'study_items' not in st.session_state: st.session_state.study_items = []
 
-    st.subheader("Novo Estudo")
-    s_name = st.text_input("Nome do Estudo")
-    w_msg = st.text_area("Boas-vindas")
+    with st.sidebar:
+        st.header("Novo Estudo")
+        s_name = st.text_input("Nome do Estudo")
+        w_msg = st.text_area("Boas-vindas")
+        st.subheader("Adicionar Tarefa")
+        with st.form("add"):
+            url = st.text_input("URL Imagem")
+            name = st.text_input("Nome ID")
+            cap = st.text_input("Legenda")
+            qs = st.multiselect("Perguntas", ['Nota de Gostar (1-9)', 'Lista de Emoções (Múltipla Escolha)', 'Uma Palavra que Define (Campo de Texto)'])
+            if st.form_submit_button("Adicionar") and url and name:
+                st.session_state.study_items.append({"name": name, "stimulus_url": url, "caption": cap, "questions": qs})
+                st.success("Adicionado")
     
-    with st.form("add"):
-        url = st.text_input("URL Imagem")
-        name = st.text_input("Nome ID")
-        cap = st.text_input("Legenda")
-        qs = st.multiselect("Perguntas", ['Nota de Gostar (1-9)', 'Lista de Emoções (Múltipla Escolha)', 'Uma Palavra que Define (Campo de Texto)'])
-        if st.form_submit_button("Adicionar") and url and name:
-            st.session_state.study_items.append({"name": name, "stimulus_url": url, "caption": cap, "questions": qs})
-            st.success("Adicionado")
-
     st.write(f"Itens: {len(st.session_state.study_items)}")
-    
     if st.button("Salvar e Gerar Link", type="primary"):
         if s_name and st.session_state.study_items:
             sh = connect_gsheets()
@@ -303,14 +271,5 @@ else:
                 sid = generate_study_id()
                 cfg = {"study_name": s_name, "welcome_message": w_msg, "items": st.session_state.study_items}
                 sh.worksheet("Estudos").append_row([sid, json.dumps(cfg)])
-                
-                # Link inteligente
-                base = URL_BASE_DA_SUA_APP
-                if "COLE_" in base: 
-                     st.warning("Configure a URL base no código.")
-                     full_url = f"?study_id={sid}"
-                else:
-                     full_url = f"{base}?study_id={sid}"
-
                 st.success("Estudo Salvo!")
-                st.code(full_url)
+                st.code(f"{URL_BASE_DA_SUA_APP}?study_id={sid}")
